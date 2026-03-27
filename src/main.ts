@@ -27,6 +27,10 @@ async function bootstrap() {
   app.useGlobalFilters(new AllExceptionsFilter());
   app.useGlobalInterceptors(new TransformInterceptor());
 
+  // Health check endpoint (outside global prefix)
+  const fastifyInstance = app.getHttpAdapter().getInstance();
+  fastifyInstance.get('/health', async () => ({ status: 'ok', timestamp: new Date().toISOString() }));
+
   const port = parseInt(process.env.PORT ?? '4000');
   await app.listen(port, '0.0.0.0');
   console.log(`MiDefensaPeru API running on http://localhost:${port}/api/v1`);
