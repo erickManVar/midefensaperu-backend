@@ -4,6 +4,7 @@ import { Queue } from 'bullmq';
 import { Resend } from 'resend';
 import { NotificationEvent, NOTIFICATIONS_QUEUE } from './notifications.constants';
 import IORedis from 'ioredis';
+import { escapeHtml } from '../common/utils/sanitize';
 
 export interface NotificationJob {
   event: NotificationEvent;
@@ -78,8 +79,8 @@ export class NotificationsService {
       subject: 'Nuevo mensaje en MiDefensaPeru',
       html: `
         <h2>Tienes un nuevo mensaje</h2>
-        <p><strong>${senderName}</strong> te ha enviado un mensaje:</p>
-        <blockquote>${preview.substring(0, 200)}${preview.length > 200 ? '...' : ''}</blockquote>
+        <p><strong>${escapeHtml(senderName)}</strong> te ha enviado un mensaje:</p>
+        <blockquote>${escapeHtml(preview.substring(0, 200))}${preview.length > 200 ? '...' : ''}</blockquote>
         <p><a href="${this.configService.get('FRONTEND_URL')}/mensajes">Ver mensaje</a></p>
       `,
     });
@@ -130,7 +131,7 @@ export class NotificationsService {
       html: `
         <h2>Tienes una nueva reseña</h2>
         <p>Rating: ${'⭐'.repeat(rating)} (${rating}/5)</p>
-        ${comment ? `<p>Comentario: "${comment}"</p>` : ''}
+        ${comment ? `<p>Comentario: "${escapeHtml(comment)}"</p>` : ''}
         <p><a href="${this.configService.get('FRONTEND_URL')}/perfil">Ver tu perfil</a></p>
       `,
     });
@@ -142,7 +143,7 @@ export class NotificationsService {
       to: toEmail,
       subject: '¡Tu perfil ha sido verificado! - MiDefensaPeru',
       html: `
-        <h2>¡Felicitaciones, ${lawyerName}!</h2>
+        <h2>¡Felicitaciones, ${escapeHtml(lawyerName)}!</h2>
         <p>Tu perfil de abogado ha sido verificado exitosamente.</p>
         <p>Ahora puedes recibir consultas de clientes en MiDefensaPeru.</p>
         <p><a href="${this.configService.get('FRONTEND_URL')}/dashboard">Ir al dashboard</a></p>

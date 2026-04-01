@@ -9,11 +9,12 @@ import type * as schema from '../database/schema';
 type DrizzleDB = NodePgDatabase<typeof schema>;
 
 const CONTACT_PATTERNS = [
-  { regex: /(\+?[\d\s\-()]{7,})/g, type: 'phone' },
+  { regex: /\b(\+?[0-9][\d\s\-()]{8,})\b/g, type: 'phone' },
   { regex: /[\w.-]+@[\w.-]+\.\w{2,}/g, type: 'email' },
-  { regex: /(https?:\/\/)?(wa\.me|whatsapp\.com)\S*/gi, type: 'whatsapp' },
-  { regex: /(https?:\/\/)?(instagram\.com|t\.me|facebook\.com|twitter\.com|tiktok\.com)\S*/gi, type: 'social' },
-  { regex: /@[\w.]+/g, type: 'social_handle' },
+  { regex: /(https?:\/\/)?(wa\.me|whatsapp\.com|api\.whatsapp\.com)\S*/gi, type: 'whatsapp' },
+  { regex: /(https?:\/\/)?(instagram\.com|t\.me|facebook\.com|twitter\.com|x\.com|tiktok\.com|linkedin\.com)\S*/gi, type: 'social' },
+  { regex: /(https?:\/\/)?(bit\.ly|tinyurl\.com|goo\.gl|is\.gd|rb\.gy|shorturl\.at)\S*/gi, type: 'url_shortener' },
+  { regex: /@[\w.]{3,}/g, type: 'social_handle' },
 ];
 const BLOCKED_MESSAGE = '[Contacto externo bloqueado. Usa la plataforma para comunicarte]';
 
