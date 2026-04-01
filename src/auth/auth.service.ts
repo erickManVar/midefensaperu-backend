@@ -119,7 +119,8 @@ export class AuthService {
   }
 
   private generateToken(userId: string, email: string, role: string): string {
-    const secret = this.configService.get<string>('JWT_SECRET') ?? 'fallback-secret';
+    const secret = this.configService.get<string>('JWT_SECRET');
+    if (!secret) throw new Error('JWT_SECRET environment variable is required');
     return signJwt({ sub: userId, email, role }, secret, 86400 * 7); // 7 days
   }
 }

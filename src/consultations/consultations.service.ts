@@ -3,9 +3,11 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { and, eq } from 'drizzle-orm';
+import { Cron } from '@nestjs/schedule';
+import { and, eq, sql } from 'drizzle-orm';
 import { DB_TOKEN } from '../database/database.module';
 import { consultations, lawyerProfiles, users } from '../database/schema';
 import { CreateConsultationDto, PayConsultationDto, DisputeConsultationDto } from './consultations.dto';
@@ -19,6 +21,7 @@ type DrizzleDB = NodePgDatabase<typeof schema>;
 
 @Injectable()
 export class ConsultationsService {
+  private readonly logger = new Logger(ConsultationsService.name);
   private readonly commissionPercent: number;
   private readonly autoReleaseDays: number;
 
@@ -103,18 +106,32 @@ export class ConsultationsService {
 
     const commissionAmount = (amount * this.commissionPercent) / 100;
 
-    await this.db
-      .update(consultations)
-      .set({
-        estado: 'HELD',
-        escrowId: `escrow_${consultationId}`,
-        culqiChargeId: charge.id,
-        comision: commissionAmount.toFixed(2),
-        updatedAt: new Date(),
-      })
-      .where(eq(consultations.id, consultationId));
+    // Atomic state update after successful charge
+    await this.db.transaction(async (tx) => {
+      // Re-verify state inside transaction
+      const [fresh] = await tx
+        .select({ estado: consultations.estado })
+        .from(consultations)
+        .where(eq(consultations.id, consultationId))
+        .limit(1);
 
-    // Notify lawyer
+      if (!fresh || fresh.estado !== 'PENDING_PAYMENT') {
+        throw new BadRequestException('Estado de consulta cambió durante el pago');
+      }
+
+      await tx
+        .update(consultations)
+        .set({
+          estado: 'HELD',
+          escrowId: `escrow_${consultationId}`,
+          culqiChargeId: charge.id,
+          comision: commissionAmount.toFixed(2),
+          updatedAt: new Date(),
+        })
+        .where(eq(consultations.id, consultationId));
+    });
+
+    // Notification outside transaction (non-critical)
     const [lawyerUser] = await this.db
       .select({ email: users.email, firstName: users.firstName })
       .from(users)
@@ -151,23 +168,25 @@ export class ConsultationsService {
     const comision = parseFloat(consultation.comision ?? '0');
     const montoAbogado = (monto - comision).toFixed(2);
 
-    await this.db
-      .update(consultations)
-      .set({
-        estado: 'COMPLETED',
-        completedAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .where(eq(consultations.id, consultationId));
+    // Atomic: update consultation + increment lawyer stats
+    await this.db.transaction(async (tx) => {
+      await tx
+        .update(consultations)
+        .set({
+          estado: 'COMPLETED',
+          completedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(consultations.id, consultationId));
 
-    // Update lawyer stats
-    await this.db
-      .update(lawyerProfiles)
-      .set({
-        totalCases: lawyerProfiles.totalCases,
-        updatedAt: new Date(),
-      })
-      .where(eq(lawyerProfiles.userId, consultation.lawyerId));
+      await tx
+        .update(lawyerProfiles)
+        .set({
+          totalCases: sql`${lawyerProfiles.totalCases} + 1`,
+          updatedAt: new Date(),
+        })
+        .where(eq(lawyerProfiles.userId, consultation.lawyerId));
+    });
 
     // Notify lawyer
     const [lawyerUser] = await this.db
@@ -250,7 +269,9 @@ export class ConsultationsService {
     return consultation;
   }
 
+  @Cron('0 */6 * * *') // Every 6 hours
   async processAutoReleases(): Promise<void> {
+    this.logger.log('Processing auto-releases...');
     const now = new Date();
     const toRelease = await this.db
       .select()

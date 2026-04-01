@@ -6,15 +6,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { FastifyRequest } from 'fastify';
-import * as crypto from 'crypto';
-
-export interface JwtPayload {
-  sub: string;
-  email: string;
-  role: string;
-  iat: number;
-  exp: number;
-}
+import { verifyJwt, JwtPayload } from '../utils/jwt.util';
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
@@ -29,7 +21,9 @@ export class JwtAuthGuard implements CanActivate {
     }
 
     try {
-      const payload = this.verifyToken(token);
+      const secret = this.configService.get<string>('JWT_SECRET');
+      if (!secret) throw new Error('JWT_SECRET not configured');
+      const payload = verifyJwt(token, secret);
       request.user = payload;
       return true;
     } catch {
@@ -42,30 +36,5 @@ export class JwtAuthGuard implements CanActivate {
     if (!authHeader) return undefined;
     const [type, token] = authHeader.split(' ');
     return type === 'Bearer' ? token : undefined;
-  }
-
-  private verifyToken(token: string): JwtPayload {
-    const [headerB64, payloadB64, signatureB64] = token.split('.');
-    if (!headerB64 || !payloadB64 || !signatureB64) {
-      throw new Error('Invalid token format');
-    }
-
-    const secret = this.configService.get<string>('JWT_SECRET')!;
-    const expectedSig = crypto
-      .createHmac('sha256', secret)
-      .update(`${headerB64}.${payloadB64}`)
-      .digest('base64url');
-
-    if (expectedSig !== signatureB64) {
-      throw new Error('Invalid signature');
-    }
-
-    const payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString()) as JwtPayload;
-
-    if (payload.exp && Date.now() / 1000 > payload.exp) {
-      throw new Error('Token expired');
-    }
-
-    return payload;
   }
 }

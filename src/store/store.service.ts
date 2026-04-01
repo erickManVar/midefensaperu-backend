@@ -1,5 +1,5 @@
 import { ForbiddenException, Inject, Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
-import { and, eq, gt } from 'drizzle-orm';
+import { and, eq, gt, sql } from 'drizzle-orm';
 import { DB_TOKEN } from '../database/database.module';
 import { lawyerProfiles, orders, products } from '../database/schema';
 import { PaymentsService } from '../payments/payments.service';
@@ -32,8 +32,23 @@ export class StoreService {
     const monto = precio * cantidad;
     const comision = monto * 0.1;
     const charge = await this.paymentsService.createCharge({ amount: this.paymentsService.solesACentimos(monto), currencyCode: 'PEN', email, sourceId: culqiToken, description: `Lex Store: ${product.nombre}` });
-    await this.db.update(products).set({ stock: product.stock - cantidad, updatedAt: new Date() }).where(eq(products.id, productId));
-    const [order] = await this.db.insert(orders).values({ buyerId, productId, cantidad, monto: monto.toFixed(2), comision: comision.toFixed(2), estado: 'PAID', culqiChargeId: charge.id }).returning();
+
+    // Atomic stock deduction + order creation (prevents race condition)
+    const order = await this.db.transaction(async (tx) => {
+      const updated = await tx
+        .update(products)
+        .set({ stock: sql`${products.stock} - ${cantidad}`, updatedAt: new Date() })
+        .where(and(eq(products.id, productId), sql`${products.stock} >= ${cantidad}`))
+        .returning();
+
+      if (updated.length === 0) {
+        throw new BadRequestException('Stock insuficiente — otro usuario compró antes');
+      }
+
+      const [newOrder] = await tx.insert(orders).values({ buyerId, productId, cantidad, monto: monto.toFixed(2), comision: comision.toFixed(2), estado: 'PAID', culqiChargeId: charge.id }).returning();
+      return newOrder;
+    });
+
     return order;
   }
   async getProviderProducts(providerId: string) {
